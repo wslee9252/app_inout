@@ -12,7 +12,7 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 출퇴근 기록을 Download/출퇴근기록.txt 에 저장한다.
+ * 출퇴근 기록을 Download/출퇴근기록.txt 에 저장한다. 기록의 기준은 이 파일 하나뿐이다.
  * 출근 여부는 txt 파일 내용을 직접 읽어서 판단하므로,
  * 파일에 출근 시간을 손으로 적어 넣어도 퇴근 시 근무 시간이 계산된다.
  */
@@ -123,19 +123,18 @@ object AttendanceLog {
         return sb.toString()
     }
 
+    /** txt 파일 내용. 파일이 없으면(삭제했으면) 빈 기록으로 본다. */
     fun read(context: Context): String {
-        val uri = findOwnFile(context)
-        if (uri != null) {
-            try {
-                context.contentResolver.openInputStream(uri)?.use {
-                    return it.readBytes().toString(Charsets.UTF_8).removePrefix("﻿")
-                }
-            } catch (e: Exception) {
-                // 읽기 실패 시 백업 사용
-            }
+        // 이전 버전이 만들던 내부 백업은 더 이상 쓰지 않으므로 지운다
+        File(context.filesDir, BACKUP_NAME).delete()
+        val uri = findOwnFile(context) ?: return ""
+        return try {
+            context.contentResolver.openInputStream(uri)?.use {
+                it.readBytes().toString(Charsets.UTF_8).removePrefix("\uFEFF")
+            } ?: ""
+        } catch (e: Exception) {
+            ""
         }
-        val backup = File(context.filesDir, BACKUP_NAME)
-        return if (backup.exists()) backup.readText(Charsets.UTF_8) else ""
     }
 
     /** 다운로드 폴더에 있는 기록 파일의 Uri (없으면 null) */
@@ -156,8 +155,6 @@ object AttendanceLog {
     }
 
     private fun write(context: Context, content: String) {
-        File(context.filesDir, BACKUP_NAME).writeText(content, Charsets.UTF_8)
-
         val bytes = content.toByteArray(Charsets.UTF_8)
         val existing = findOwnFile(context)
         if (existing != null) {
