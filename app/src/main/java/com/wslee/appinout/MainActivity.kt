@@ -1,6 +1,7 @@
 package com.wslee.appinout
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.TimePickerDialog
 import android.content.Intent
 import android.os.Build
@@ -29,6 +30,18 @@ class MainActivity : Activity() {
                 Toast.makeText(this, r.message, Toast.LENGTH_LONG).show()
                 refresh()
             }, c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE), true).show()
+        }
+
+        findViewById<Button>(R.id.btn_day_off).setOnClickListener {
+            AlertDialog.Builder(this)
+                .setMessage("오늘(${AttendanceLog.todayLabel()})을\n${AttendanceLog.DAY_OFF_LABEL}로 기록할까요?")
+                .setPositiveButton("기록") { _, _ ->
+                    val r = AttendanceLog.markDayOff(this)
+                    Toast.makeText(this, r.message, Toast.LENGTH_LONG).show()
+                    refresh()
+                }
+                .setNegativeButton("취소", null)
+                .show()
         }
 
         findViewById<Button>(R.id.btn_share).setOnClickListener {

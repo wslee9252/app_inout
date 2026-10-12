@@ -30,6 +30,12 @@
         android:layout_marginTop="12dp"
         android:text="출근 시간 직접 입력 (깜빡했을 때)" />
 
+    <Button
+        android:id="@+id/btn_day_off"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="휴무일 기록 (공휴일/휴가)" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

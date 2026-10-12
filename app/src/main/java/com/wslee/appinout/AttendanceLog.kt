@@ -97,6 +97,39 @@ object AttendanceLog {
         return Result(true, "출근 시간을 $time 으로 기록했습니다.")
     }
 
+    const val DAY_OFF_LABEL = "공휴일/휴가"
+
+    /** 오늘 날짜 + 요일 (예: 2026-10-13 (화)) */
+    fun todayLabel(): String = dateFmt.format(Date())
+
+    /** 앱 화면의 휴무일 버튼: 오늘을 공휴일/휴가로 기록 */
+    fun markDayOff(context: Context): Result {
+        val now = Date()
+        val today = dayFmt.format(now)
+        val content = read(context)
+        var hasWork = false
+        var blockDate: String? = null
+        for (line in content.lines()) {
+            val d = DATE_LINE.find(line)
+            if (d != null) {
+                blockDate = d.groupValues[1]
+                if (blockDate == today && line.contains(DAY_OFF_LABEL)) {
+                    return Result(false, "이미 휴무일로 기록되어 있습니다.")
+                }
+                continue
+            }
+            if (blockDate == today && IN_LINE.containsMatchIn(line)) hasWork = true
+        }
+        if (hasWork) {
+            return Result(false, "오늘은 출근 기록이 있어 휴무일로 기록하지 않았습니다.")
+        }
+        val sb = StringBuilder(content.trimEnd())
+        if (sb.isNotEmpty()) sb.append("\n\n")
+        sb.append(dateFmt.format(now)).append(" ").append(DAY_OFF_LABEL).append("\n")
+        write(context, sb.toString())
+        return Result(true, "${dateFmt.format(now)} $DAY_OFF_LABEL 로 기록했습니다.")
+    }
+
     /** 퇴근 버튼. 같은 날짜의 출근 기록이 없으면 기록하지 않는다. */
     fun clockOut(context: Context): Result {
         val now = Date()
