@@ -16,6 +16,14 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".FeedbackActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Feedback" />
+
         <receiver
             android:name=".InOutWidget"
             android:exported="false"
