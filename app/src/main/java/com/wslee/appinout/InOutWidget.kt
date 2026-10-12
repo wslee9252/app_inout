@@ -21,12 +21,12 @@ class InOutWidget : AppWidgetProvider() {
 
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
-        val msg = when (intent.action) {
+        val result = when (intent.action) {
             ACTION_IN -> AttendanceLog.clockIn(context)
             ACTION_OUT -> AttendanceLog.clockOut(context)
             else -> return
         }
-        Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+        Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
     }
 
     private fun pending(context: Context, action: String, code: Int): PendingIntent {

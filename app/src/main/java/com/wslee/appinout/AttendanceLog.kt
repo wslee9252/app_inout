@@ -7,69 +7,120 @@ import android.os.Environment
 import android.provider.MediaStore
 import java.io.File
 import java.text.SimpleDateFormat
+import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
 /**
  * 출퇴근 기록을 Download/출퇴근기록.txt 에 저장한다.
- * 앱 내부에도 같은 내용을 백업해 두고, 파일을 못 읽을 때 백업을 사용한다.
+ * 출근 여부는 txt 파일 내용을 직접 읽어서 판단하므로,
+ * 파일에 출근 시간을 손으로 적어 넣어도 퇴근 시 근무 시간이 계산된다.
  */
 object AttendanceLog {
 
     const val FILE_NAME = "출퇴근기록.txt"
     private val RELATIVE_PATH = Environment.DIRECTORY_DOWNLOADS + "/"
-    private const val PREFS = "inout"
-    private const val KEY_OPEN_IN = "open_in_millis"
     private const val BACKUP_NAME = "log_backup.txt"
 
     private val dateFmt get() = SimpleDateFormat("yyyy-MM-dd (E)", Locale.KOREAN)
-    private val dayKeyFmt get() = SimpleDateFormat("yyyyMMdd", Locale.KOREAN)
+    private val dayFmt get() = SimpleDateFormat("yyyy-MM-dd", Locale.KOREAN)
     private val timeFmt get() = SimpleDateFormat("HH:mm", Locale.KOREAN)
 
-    /** 출근 버튼. 결과 메시지를 돌려준다. */
-    fun clockIn(context: Context): String {
-        val now = System.currentTimeMillis()
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val openIn = prefs.getLong(KEY_OPEN_IN, 0L)
-        if (openIn != 0L && sameDay(openIn, now)) {
-            return "이미 출근 기록이 있습니다. (출근 : ${timeFmt.format(Date(openIn))})"
-        }
+    private val DATE_LINE = Regex("""^\s*(\d{4}-\d{2}-\d{2})""")
+    private val IN_LINE = Regex("""^\s*출근\s*:?\s*(\d{1,2})\s*:\s*(\d{2})""")
+    private val OUT_LINE = Regex("""^\s*퇴근""")
 
-        val current = read(context)
-        val sb = StringBuilder(current)
-        if (sb.isNotEmpty()) {
-            if (!sb.endsWith("\n")) sb.append("\n")
-            sb.append("\n") // 날짜 블록 사이 빈 줄
-        }
-        sb.append(dateFmt.format(Date(now))).append("\n")
-        sb.append("출근 : ").append(timeFmt.format(Date(now))).append("\n")
+    data class Result(val ok: Boolean, val message: String)
 
-        write(context, sb.toString())
-        prefs.edit().putLong(KEY_OPEN_IN, now).apply()
-        return "출근 : ${dateFmt.format(Date(now))}, ${timeFmt.format(Date(now))}"
+    /** 오늘 날짜 블록 중 퇴근이 아직 없는 출근 시각(하루 중 분). 없으면 null */
+    private fun openClockIn(content: String, today: String): Int? {
+        val lines = content.lines()
+        var blockDate: String? = null
+        var inMinutes: Int? = null
+        for (line in lines) {
+            val d = DATE_LINE.find(line)
+            if (d != null) {
+                blockDate = d.groupValues[1]
+                inMinutes = null
+                continue
+            }
+            if (blockDate != today) continue
+            val m = IN_LINE.find(line)
+            if (m != null) {
+                val h = m.groupValues[1].toInt()
+                val min = m.groupValues[2].toInt()
+                if (h in 0..23 && min in 0..59) inMinutes = h * 60 + min
+                continue
+            }
+            if (OUT_LINE.containsMatchIn(line)) inMinutes = null
+        }
+        return if (blockDate == today) inMinutes else null
+    }
+
+    private fun minutesOfDay(now: Date): Int {
+        val c = Calendar.getInstance().apply { time = now }
+        return c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE)
+    }
+
+    private fun hhmm(minutes: Int) = String.format(Locale.KOREAN, "%02d:%02d", minutes / 60, minutes % 60)
+
+    /** 출근 버튼 */
+    fun clockIn(context: Context): Result {
+        val now = Date()
+        val content = read(context)
+        val open = openClockIn(content, dayFmt.format(now))
+        if (open != null) {
+            return Result(false, "이미 출근 기록이 있습니다. (출근 : ${hhmm(open)})")
+        }
+        write(context, appendBlock(content, now, timeFmt.format(now)))
+        return Result(true, "✅ 출근완료\n${dateFmt.format(now)} ${timeFmt.format(now)}")
+    }
+
+    /** 앱 화면에서 출근 시간을 직접 입력 (깜빡하고 안 눌렀을 때) */
+    fun setClockInManually(context: Context, hour: Int, minute: Int): Result {
+        val now = Date()
+        val time = hhmm(hour * 60 + minute)
+        if (hour * 60 + minute > minutesOfDay(now)) {
+            return Result(false, "현재 시각보다 늦은 출근 시간은 입력할 수 없습니다.")
+        }
+        val content = read(context)
+        val today = dayFmt.format(now)
+        if (openClockIn(content, today) != null) {
+            // 오늘 열린 출근 기록의 시간을 고친다 (마지막 출근 줄)
+            val lines = content.lines().toMutableList()
+            val idx = lines.indexOfLast { IN_LINE.containsMatchIn(it) }
+            if (idx >= 0) lines[idx] = "출근 : $time"
+            write(context, lines.joinToString("\n"))
+        } else {
+            write(context, appendBlock(content, now, time))
+        }
+        return Result(true, "출근 시간을 $time 으로 기록했습니다.")
     }
 
     /** 퇴근 버튼. 같은 날짜의 출근 기록이 없으면 기록하지 않는다. */
-    fun clockOut(context: Context): String {
-        val now = System.currentTimeMillis()
-        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val openIn = prefs.getLong(KEY_OPEN_IN, 0L)
-        if (openIn == 0L || !sameDay(openIn, now)) {
-            return "출근 이력이없습니다."
-        }
+    fun clockOut(context: Context): Result {
+        val now = Date()
+        val content = read(context)
+        val open = openClockIn(content, dayFmt.format(now))
+            ?: return Result(false, "출근 이력이없습니다.")
 
-        // 화면에 표시되는 분 단위 시각 기준으로 계산 (08:52 ~ 18:07 = 9시간 15분)
-        val minutes = (now / 60_000L) - (openIn / 60_000L)
+        val minutes = (minutesOfDay(now) - open).coerceAtLeast(0)
         val work = "${minutes / 60}시간 ${minutes % 60}분"
 
-        val sb = StringBuilder(read(context))
+        val sb = StringBuilder(content)
         if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n")
-        sb.append("퇴근 : ").append(timeFmt.format(Date(now))).append("\n")
+        sb.append("퇴근 : ").append(timeFmt.format(now)).append("\n")
         sb.append("근무 : ").append(work).append("\n")
-
         write(context, sb.toString())
-        prefs.edit().putLong(KEY_OPEN_IN, 0L).apply()
-        return "퇴근 : ${dateFmt.format(Date(now))}, ${timeFmt.format(Date(now))}\n근무 : $work"
+        return Result(true, "✅ 퇴근완료\n${timeFmt.format(now)} · 근무 $work")
+    }
+
+    private fun appendBlock(content: String, now: Date, time: String): String {
+        val sb = StringBuilder(content.trimEnd())
+        if (sb.isNotEmpty()) sb.append("\n\n") // 날짜 블록 사이 빈 줄
+        sb.append(dateFmt.format(now)).append("\n")
+        sb.append("출근 : ").append(time).append("\n")
+        return sb.toString()
     }
 
     fun read(context: Context): String {
@@ -77,7 +128,7 @@ object AttendanceLog {
         if (uri != null) {
             try {
                 context.contentResolver.openInputStream(uri)?.use {
-                    return it.readBytes().toString(Charsets.UTF_8)
+                    return it.readBytes().toString(Charsets.UTF_8).removePrefix("﻿")
                 }
             } catch (e: Exception) {
                 // 읽기 실패 시 백업 사용
@@ -126,7 +177,4 @@ object AttendanceLog {
             ?: return
         context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(bytes) }
     }
-
-    private fun sameDay(a: Long, b: Long): Boolean =
-        dayKeyFmt.format(Date(a)) == dayKeyFmt.format(Date(b))
 }

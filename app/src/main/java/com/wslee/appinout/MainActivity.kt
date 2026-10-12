@@ -1,11 +1,16 @@
 package com.wslee.appinout
 
 import android.app.Activity
+import android.app.TimePickerDialog
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
+import android.view.View
+import android.view.WindowInsets
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import java.util.Calendar
 
 class MainActivity : Activity() {
 
@@ -15,6 +20,16 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         logText = findViewById(R.id.log_text)
+        applySystemBarPadding(findViewById(R.id.root))
+
+        findViewById<Button>(R.id.btn_manual_in).setOnClickListener {
+            val c = Calendar.getInstance()
+            TimePickerDialog(this, { _, h, m ->
+                val r = AttendanceLog.setClockInManually(this, h, m)
+                Toast.makeText(this, r.message, Toast.LENGTH_LONG).show()
+                refresh()
+            }, c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE), true).show()
+        }
 
         findViewById<Button>(R.id.btn_share).setOnClickListener {
             val content = AttendanceLog.read(this)
@@ -47,8 +62,32 @@ class MainActivity : Activity() {
         }
     }
 
+    /** 상태바/내비게이션바에 내용이 가려지지 않도록 여백 추가 (Android 15 전체화면 대응) */
+    private fun applySystemBarPadding(root: View) {
+        val base = root.paddingTop
+        root.setOnApplyWindowInsetsListener { v, insets ->
+            val top: Int
+            val bottom: Int
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout())
+                top = bars.top; bottom = bars.bottom
+            } else {
+                @Suppress("DEPRECATION")
+                top = insets.systemWindowInsetTop
+                @Suppress("DEPRECATION")
+                bottom = insets.systemWindowInsetBottom
+            }
+            v.setPadding(v.paddingLeft, base + top, v.paddingRight, base + bottom)
+            insets
+        }
+    }
+
     override fun onResume() {
         super.onResume()
+        refresh()
+    }
+
+    private fun refresh() {
         val content = AttendanceLog.read(this)
         logText.text = content.ifBlank { "아직 기록이 없습니다." }
     }
