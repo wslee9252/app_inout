@@ -30,11 +30,32 @@
         android:layout_marginTop="12dp"
         android:text="출근 시간 직접 입력 (깜빡했을 때)" />
 
-    <Button
-        android:id="@+id/btn_day_off"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="휴무일 기록 (공휴일/휴가)" />
+        android:orientation="horizontal">
+        <Button
+            android:id="@+id/btn_leave_full"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="휴가"
+            android:textSize="13sp" />
+        <Button
+            android:id="@+id/btn_leave_am"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="오전반차"
+            android:textSize="13sp" />
+        <Button
+            android:id="@+id/btn_leave_pm"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="오후반차"
+            android:textSize="13sp" />
+    </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"

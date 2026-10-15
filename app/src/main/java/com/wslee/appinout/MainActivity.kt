@@ -32,17 +32,9 @@ class MainActivity : Activity() {
             }, c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE), true).show()
         }
 
-        findViewById<Button>(R.id.btn_day_off).setOnClickListener {
-            AlertDialog.Builder(this)
-                .setMessage("오늘(${AttendanceLog.todayLabel()})을\n${AttendanceLog.DAY_OFF_LABEL}로 기록할까요?")
-                .setPositiveButton("기록") { _, _ ->
-                    val r = AttendanceLog.markDayOff(this)
-                    Toast.makeText(this, r.message, Toast.LENGTH_LONG).show()
-                    refresh()
-                }
-                .setNegativeButton("취소", null)
-                .show()
-        }
+        bindLeave(R.id.btn_leave_full, AttendanceLog.LEAVE_FULL)
+        bindLeave(R.id.btn_leave_am, AttendanceLog.LEAVE_AM)
+        bindLeave(R.id.btn_leave_pm, AttendanceLog.LEAVE_PM)
 
         findViewById<Button>(R.id.btn_share).setOnClickListener {
             val content = AttendanceLog.read(this)
@@ -72,6 +64,20 @@ class MainActivity : Activity() {
             } catch (e: Exception) {
                 Toast.makeText(this, "파일을 열 앱이 없습니다.", Toast.LENGTH_SHORT).show()
             }
+        }
+    }
+
+    private fun bindLeave(buttonId: Int, label: String) {
+        findViewById<Button>(buttonId).setOnClickListener {
+            AlertDialog.Builder(this)
+                .setMessage("오늘(${AttendanceLog.todayLabel()})을\n${label}로 기록할까요?")
+                .setPositiveButton("기록") { _, _ ->
+                    val r = AttendanceLog.markLeave(this, label)
+                    Toast.makeText(this, r.message, Toast.LENGTH_LONG).show()
+                    refresh()
+                }
+                .setNegativeButton("취소", null)
+                .show()
         }
     }
 
