@@ -19,6 +19,7 @@ import java.util.Locale
  * 점심시간 11:45~12:45
  *  - 출근 괄호: 11:45 - 출근시각 (오전 근무)
  *  - 퇴근 괄호: 퇴근시각 - 12:45 (오후 근무)
+ *    단, 11:45 이전 퇴근 또는 12:45 이후 출근이면 퇴근시각 - 출근시각
  *  - 근무: 출근~퇴근 중 점심시간을 뺀 시간
  *  - 괄호 값이 음수면 괄호 생략
  */
@@ -62,9 +63,15 @@ object AttendanceLog {
         return "출근 : ${hhmm(inMin)}" + if (am >= 0) " (${dur(am)})" else ""
     }
 
-    private fun outLine(outMin: Int): String {
-        val pm = outMin - LUNCH_END
-        return "퇴근 : ${hhmm(outMin)}" + if (pm >= 0) " (${dur(pm)})" else ""
+    /**
+     * 퇴근 괄호
+     *  - 11:45 이전(정각 포함) 퇴근: 퇴근 - 출근 (오전만 근무)
+     *  - 12:45 이후 출근: 퇴근 - 출근 (오후만 근무)
+     *  - 그 외: 퇴근 - 12:45 (점심시간 중 출근도 동일, 점심은 근무에서 빠지므로)
+     */
+    private fun outLine(inMin: Int, outMin: Int): String {
+        val v = if (outMin <= LUNCH_START) outMin - inMin else outMin - maxOf(inMin, LUNCH_END)
+        return "퇴근 : ${hhmm(outMin)}" + if (v >= 0) " (${dur(v)})" else ""
     }
 
     /** 출근~퇴근 중 점심시간(11:45~12:45)과 겹치는 부분을 뺀 근무 시간(분) */
@@ -190,7 +197,7 @@ object AttendanceLog {
         val work = dur(workMinutes(open, outMin))
         val sb = StringBuilder(content)
         if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n")
-        sb.append(outLine(outMin)).append("\n")
+        sb.append(outLine(open, outMin)).append("\n")
         sb.append("근무 : ").append(work).append("\n")
         write(context, sb.toString())
         return Result(true, "✅ 퇴근완료\n${hhmm(outMin)} · 근무 $work")
