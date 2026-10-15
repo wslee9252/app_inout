@@ -58,8 +58,10 @@ object AttendanceLog {
         return c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE)
     }
 
-    private fun inLine(inMin: Int): String {
-        val am = LUNCH_START - inMin
+    /** 출근 괄호: (오전 근무 끝 - 출근). 오전 근무 끝 = 11:45, 단 11:45 전에 퇴근하면 퇴근시각 */
+    private fun inLine(inMin: Int, outMin: Int? = null): String {
+        val amEnd = if (outMin != null) minOf(outMin, LUNCH_START) else LUNCH_START
+        val am = amEnd - inMin
         return "출근 : ${hhmm(inMin)}" + if (am >= 0) " (${dur(am)})" else ""
     }
 
@@ -195,7 +197,17 @@ object AttendanceLog {
             ?: return Result(false, "출근 이력이없습니다.")
 
         val work = dur(workMinutes(open, outMin))
-        val sb = StringBuilder(content)
+        // 11:45 전에 퇴근하면 출근 괄호를 실제 오전 근무 시간으로 고친다
+        var base = content
+        if (outMin < LUNCH_START) {
+            val lines = content.lines().toMutableList()
+            val idx = lines.indexOfLast { IN_LINE.containsMatchIn(it) }
+            if (idx >= 0) {
+                lines[idx] = inLine(open, outMin)
+                base = lines.joinToString("\n")
+            }
+        }
+        val sb = StringBuilder(base)
         if (sb.isNotEmpty() && !sb.endsWith("\n")) sb.append("\n")
         sb.append(outLine(open, outMin)).append("\n")
         sb.append("근무 : ").append(work).append("\n")
