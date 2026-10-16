@@ -161,31 +161,120 @@ object AttendanceLog {
         return Result(true, "✅ 출근완료\n${dateFmt.format(now)} ${hhmm(nowMin)}")
     }
 
-    /** 앱 화면에서 출근 시간을 직접 입력 (깜빡하고 안 눌렀을 때) */
-    fun setClockInManually(context: Context, hour: Int, minute: Int): Result {
+    // ---------- 출근/퇴근 시간 수정 (가장 최근 기록 대상) ----------
+
+    /** 한 번의 출근~퇴근 기록 (줄 번호) */
+    private class Rec(
+        val date: String,        // yyyy-MM-dd
+        val dateLine: String,    // 날짜 줄 원문 (예: 2026-10-16 (금) 오전반차)
+        val inIdx: Int,
+        val inMin: Int,
+        var outIdx: Int = -1,
+        var outMin: Int = -1,
+        var workIdx: Int = -1
+    )
+
+    private val OUT_TIME = Regex("""^\s*퇴근\s*:?\s*(\d{1,2})\s*:\s*(\d{2})""")
+    private val WORK_LINE = Regex("""^\s*근무""")
+
+    private fun records(lines: List<String>): List<Rec> {
+        val list = mutableListOf<Rec>()
+        var date: String? = null
+        var dateLine = ""
+        var cur: Rec? = null
+        for ((i, line) in lines.withIndex()) {
+            val d = DATE_LINE.find(line)
+            if (d != null) {
+                date = d.groupValues[1]; dateLine = line.trim(); cur = null
+                continue
+            }
+            if (date == null) continue
+            val m = IN_LINE.find(line)
+            if (m != null) {
+                val min = m.groupValues[1].toInt() * 60 + m.groupValues[2].toInt()
+                cur = Rec(date, dateLine, i, min).also { list.add(it) }
+                continue
+            }
+            val c = cur ?: continue
+            val o = OUT_TIME.find(line)
+            if (o != null && c.outIdx < 0) {
+                c.outIdx = i
+                c.outMin = o.groupValues[1].toInt() * 60 + o.groupValues[2].toInt()
+                continue
+            }
+            if (WORK_LINE.containsMatchIn(line) && c.outIdx >= 0 && c.workIdx < 0) c.workIdx = i
+        }
+        return list
+    }
+
+    /** 수정 대상 안내: (화면에 보여줄 제목, 현재 기록된 시간) — 대상이 없으면 null */
+    fun clockInEditTarget(context: Context): Pair<String, Int>? {
+        val today = dayFmt.format(Date())
+        val rec = records(read(context).lines()).lastOrNull { it.date == today } ?: return null
+        return Pair("${rec.dateLine} 출근 시간 수정", rec.inMin)
+    }
+
+    fun clockOutEditTarget(context: Context): Pair<String, Int>? {
+        val rec = records(read(context).lines()).lastOrNull { it.outIdx >= 0 } ?: return null
+        return Pair("${rec.dateLine} 퇴근 시간 수정", rec.outMin)
+    }
+
+    /** 출근 시간 수정. 오늘 출근 기록이 없으면 오늘 출근으로 새로 기록한다 (깜빡한 경우). */
+    fun editClockIn(context: Context, hour: Int, minute: Int): Result {
         val now = Date()
+        val nowMin = minutesOfDay(now)
         val inMin = hour * 60 + minute
-        if (inMin > minutesOfDay(now)) {
+        val today = dayFmt.format(now)
+        val content = read(context)
+        val lines = content.lines().toMutableList()
+        val rec = records(lines).lastOrNull { it.date == today }
+
+        if (rec == null) {
+            val t = analyze(lines, today)
+            if (t.leave in FULL_DAY_LEAVES) return Result(false, "오늘은 ${t.leave}로 기록되어 있습니다.")
+            if (inMin > nowMin) return Result(false, "현재 시각보다 늦은 출근 시간은 입력할 수 없습니다.")
+            val newContent = if (t.lastBlockIsToday && !t.lastBlockHasIn) {
+                content.trimEnd() + "\n" + inLine(inMin) + "\n"
+            } else {
+                appendBlock(content, now, inLine(inMin))
+            }
+            write(context, newContent)
+            return Result(true, "오늘 출근을 ${hhmm(inMin)} 으로 기록했습니다.")
+        }
+
+        if (rec.outIdx >= 0) {
+            if (inMin >= rec.outMin) return Result(false, "출근 시간은 퇴근 시간(${hhmm(rec.outMin)})보다 빨라야 합니다.")
+        } else if (inMin > nowMin) {
             return Result(false, "현재 시각보다 늦은 출근 시간은 입력할 수 없습니다.")
         }
-        val content = read(context)
-        val t = analyze(content.lines(), dayFmt.format(now))
-        if (t.leave in FULL_DAY_LEAVES) {
-            return Result(false, "오늘은 ${t.leave}로 기록되어 있습니다.")
+        applyRec(lines, rec, inMin, if (rec.outIdx >= 0) rec.outMin else null)
+        write(context, lines.joinToString("\n"))
+        return Result(true, "출근 시간을 ${hhmm(inMin)} 으로 수정했습니다.")
+    }
+
+    /** 퇴근 시간 수정 (가장 최근 퇴근 기록) */
+    fun editClockOut(context: Context, hour: Int, minute: Int): Result {
+        val now = Date()
+        val outMin = hour * 60 + minute
+        val lines = read(context).lines().toMutableList()
+        val rec = records(lines).lastOrNull { it.outIdx >= 0 }
+            ?: return Result(false, "수정할 퇴근 기록이 없습니다.")
+        if (outMin <= rec.inMin) return Result(false, "퇴근 시간은 출근 시간(${hhmm(rec.inMin)})보다 늦어야 합니다.")
+        if (rec.date == dayFmt.format(now) && outMin > minutesOfDay(now)) {
+            return Result(false, "현재 시각보다 늦은 퇴근 시간은 입력할 수 없습니다.")
         }
-        val newContent = when {
-            t.openIn != null -> {
-                // 오늘 열린 출근 기록의 시간을 고친다 (마지막 출근 줄)
-                val lines = content.lines().toMutableList()
-                val idx = lines.indexOfLast { IN_LINE.containsMatchIn(it) }
-                if (idx >= 0) lines[idx] = inLine(inMin)
-                lines.joinToString("\n")
-            }
-            t.lastBlockIsToday && !t.lastBlockHasIn -> content.trimEnd() + "\n" + inLine(inMin) + "\n"
-            else -> appendBlock(content, now, inLine(inMin))
-        }
-        write(context, newContent)
-        return Result(true, "출근 시간을 ${hhmm(inMin)} 으로 기록했습니다.")
+        applyRec(lines, rec, rec.inMin, outMin)
+        write(context, lines.joinToString("\n"))
+        return Result(true, "퇴근 시간을 ${hhmm(outMin)} 으로 수정했습니다.\n근무 : ${dur(workMinutes(rec.inMin, outMin))}")
+    }
+
+    /** 기록 한 건의 출근/퇴근 줄과 근무 시간을 새 값으로 다시 쓴다 */
+    private fun applyRec(lines: MutableList<String>, rec: Rec, inMin: Int, outMin: Int?) {
+        lines[rec.inIdx] = inLine(inMin, outMin)
+        if (outMin == null || rec.outIdx < 0) return
+        lines[rec.outIdx] = outLine(inMin, outMin)
+        val work = "근무 : ${dur(workMinutes(inMin, outMin))}"
+        if (rec.workIdx >= 0) lines[rec.workIdx] = work else lines.add(rec.outIdx + 1, work)
     }
 
     /** 퇴근 버튼. 같은 날짜의 출근 기록이 없으면 기록하지 않는다. */

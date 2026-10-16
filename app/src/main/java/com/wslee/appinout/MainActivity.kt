@@ -23,13 +23,21 @@ class MainActivity : Activity() {
         logText = findViewById(R.id.log_text)
         applySystemBarPadding(findViewById(R.id.root))
 
-        findViewById<Button>(R.id.btn_manual_in).setOnClickListener {
+        findViewById<Button>(R.id.btn_edit_in).setOnClickListener {
+            val target = AttendanceLog.clockInEditTarget(this)
+            val title = target?.first ?: "${AttendanceLog.todayLabel()} 출근 기록 (깜빡했을 때)"
             val c = Calendar.getInstance()
-            TimePickerDialog(this, { _, h, m ->
-                val r = AttendanceLog.setClockInManually(this, h, m)
-                Toast.makeText(this, r.message, Toast.LENGTH_LONG).show()
-                refresh()
-            }, c.get(Calendar.HOUR_OF_DAY), c.get(Calendar.MINUTE), true).show()
+            val init = target?.second ?: (c.get(Calendar.HOUR_OF_DAY) * 60 + c.get(Calendar.MINUTE))
+            pickTime(title, init) { h, m -> AttendanceLog.editClockIn(this, h, m) }
+        }
+
+        findViewById<Button>(R.id.btn_edit_out).setOnClickListener {
+            val target = AttendanceLog.clockOutEditTarget(this)
+            if (target == null) {
+                Toast.makeText(this, "수정할 퇴근 기록이 없습니다.", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            pickTime(target.first, target.second) { h, m -> AttendanceLog.editClockOut(this, h, m) }
         }
 
         bindLeave(R.id.btn_leave_full, AttendanceLog.LEAVE_FULL)
@@ -65,6 +73,16 @@ class MainActivity : Activity() {
                 Toast.makeText(this, "파일을 열 앱이 없습니다.", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    private fun pickTime(title: String, initMin: Int, action: (Int, Int) -> AttendanceLog.Result) {
+        val dlg = TimePickerDialog(this, { _, h, m ->
+            val r = action(h, m)
+            Toast.makeText(this, r.message, Toast.LENGTH_LONG).show()
+            refresh()
+        }, initMin / 60, initMin % 60, true)
+        dlg.setTitle(title)
+        dlg.show()
     }
 
     private fun bindLeave(buttonId: Int, label: String) {
